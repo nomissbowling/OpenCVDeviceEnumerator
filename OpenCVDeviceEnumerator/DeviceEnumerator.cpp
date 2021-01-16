@@ -1,3 +1,6 @@
+#include <iomanip>
+#include <iostream>
+
 #include "DeviceEnumerator.h"
 
 std::map<int, Device> DeviceEnumerator::getVideoDevicesMap() {
@@ -39,6 +42,34 @@ std::map<int, Device> DeviceEnumerator::getDevicesMap(const GUID deviceClass)
 		IMoniker *pMoniker = NULL;
 		while (pEnum->Next(1, &pMoniker, NULL) == S_OK) {
 
+{
+  IBaseFilter *pFilter = NULL;
+  HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pFilter);
+  if(SUCCEEDED(hr)){
+    FILTER_INFO f;
+    pFilter->QueryFilterInfo(&f);
+    std::string s = ConvertWCSToMBS(f.achName, -1);
+    std::cout << "Filter: " << std::hex << std::setw(16) << std::setfill('0') << (unsigned long long)pFilter << std::endl;
+    std::cout << "Filter[" << s.c_str() << "]";
+    if(f.pGraph) f.pGraph->Release();
+    IEnumPins *pEnumPins = NULL;
+    pFilter->EnumPins(&pEnumPins);
+    IPin *pPin = NULL;
+    while(pEnumPins->Next(1, &pPin, NULL) == S_OK){
+      PIN_DIRECTION d;
+      pPin->QueryDirection(&d); // 0: in, 1: out
+      PIN_INFO p;
+      pPin->QueryPinInfo(&p);
+      std::string s = ConvertWCSToMBS(p.achName, -1);
+      std::cout << " [" << d << "=" << p.dir << ":" << s.c_str() << "]";
+      pPin->Release();
+    }
+    pEnumPins->Release();
+    std::cout << std::endl;
+    pFilter->Release();
+  }
+}
+
 			IPropertyBag *pPropBag;
 			HRESULT hr = pMoniker->BindToStorage(0, 0, IID_PPV_ARGS(&pPropBag));
 			if (FAILED(hr)) {
@@ -61,6 +92,7 @@ std::map<int, Device> DeviceEnumerator::getDevicesMap(const GUID deviceClass)
 			}
 			// If still fails, continue with next device
 			if (FAILED(hr)) {
+std::cerr << "Failed: Description or FirendlyName" << std::endl;
 				VariantClear(&var);
 				continue;
 			}
@@ -70,16 +102,19 @@ std::map<int, Device> DeviceEnumerator::getDevicesMap(const GUID deviceClass)
 			}
 
 			VariantClear(&var); // We clean the variable in order to read the next value
+std::cout << "FriendlyName: " << deviceName.c_str() << std::endl;
 
 								// We try to read the DevicePath
 			hr = pPropBag->Read(L"DevicePath", &var, 0);
 			if (FAILED(hr)) {
+std::cerr << "Failed: DevicePath" << std::endl;
 				VariantClear(&var);
 				continue; // If it fails we continue with next device
 			}
 			else {
 				devicePath = ConvertBSTRToMBS(var.bstrVal);
 			}
+std::cout << "DevicePath: " << devicePath.c_str() << std::endl;
 
 			// We populate the map
 			deviceId++;
