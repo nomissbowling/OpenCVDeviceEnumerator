@@ -37,6 +37,7 @@ int DeviceEnumerator::dspConfig(IBaseFilter *pFilter)
           hr = pConfig->GetStreamCaps(f, &pmt, (BYTE *)&scc);
           if(SUCCEEDED(hr)){
             if(pmt->majortype == MEDIATYPE_Video
+            && pmt->subtype == MEDIASUBTYPE_RGB24
             && pmt->formattype == FORMAT_VideoInfo
             && pmt->cbFormat >= sizeof(VIDEOINFOHEADER)
             && pmt->pbFormat != NULL){
@@ -45,6 +46,11 @@ int DeviceEnumerator::dspConfig(IBaseFilter *pFilter)
               double frame = 1 / (ns * pVIH->AvgTimePerFrame);
               std::cout << fmt("%dx%d %7.2ffps\n",
                 pVIH->bmiHeader.biWidth, pVIH->bmiHeader.biHeight, frame);
+#if 0
+              pmt->pbFormat = (BYTE *)pVIH;
+              hr = pConfig->SetFormat(pmt);
+              if(FAILED(hr)){ std::cerr << "SetFormat failure" << std::endl; }
+#endif
             }
           }
         }
