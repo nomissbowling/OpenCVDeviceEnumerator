@@ -1,7 +1,89 @@
 #include <iomanip>
 #include <iostream>
+#include <sstream>
+#include <vector>
+
+#include <string>
+#include <cstdio>
+#include <cstdlib>
 
 #include "DeviceEnumerator.h"
+
+template <typename ... Args>
+std::string fmt(const std::string &f, Args ... args)
+{
+  size_t l = snprintf(nullptr, 0, f.c_str(), args ...);
+  std::vector<char> buf(l + 1);
+  snprintf(&buf[0], l + 1, f.c_str(), args ...);
+  return std::string(&buf[0], &buf[0] + l);
+}
+
+int DeviceEnumerator::dspConfig(IBaseFilter *pFilter)
+{
+  ICaptureGraphBuilder2 *pCapture = NULL;
+  HRESULT hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, 0, CLSCTX_INPROC,
+    IID_ICaptureGraphBuilder2, (void **)&pCapture);
+  if(SUCCEEDED(hr)){
+    IAMStreamConfig *pConfig = NULL;
+    hr = pCapture->FindInterface(&PIN_CATEGORY_CAPTURE, 0, pFilter,
+      IID_IAMStreamConfig, (void **)&pConfig);
+    if(SUCCEEDED(hr)){
+      int cnt = 0, sz = 0;
+      hr = pConfig->GetNumberOfCapabilities(&cnt, &sz);
+      if(sz == sizeof(VIDEO_STREAM_CONFIG_CAPS)){
+        for(int f = 0; f < cnt; ++f){
+          VIDEO_STREAM_CONFIG_CAPS scc;
+          AM_MEDIA_TYPE *pmt;
+          hr = pConfig->GetStreamCaps(f, &pmt, (BYTE *)&scc);
+          if(SUCCEEDED(hr)){
+            if(pmt->majortype == MEDIATYPE_Video
+            && pmt->formattype == FORMAT_VideoInfo
+            && pmt->cbFormat >= sizeof(VIDEOINFOHEADER)
+            && pmt->pbFormat != NULL){
+              VIDEOINFOHEADER *pVIH = (VIDEOINFOHEADER *)pmt->pbFormat;
+              double ns = 100*1.0e-9;
+              double frame = 1 / (ns * pVIH->AvgTimePerFrame);
+              std::cout << fmt("%dx%d %7.2ffps\n",
+                pVIH->bmiHeader.biWidth, pVIH->bmiHeader.biHeight, frame);
+            }
+          }
+        }
+      }
+      pConfig->Release();
+    }
+    pCapture->Release();
+  }
+  return 0;
+}
+
+int DeviceEnumerator::dspNameAndPins(IMoniker *pMoniker)
+{
+  IBaseFilter *pFilter = NULL;
+  HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pFilter);
+  if(SUCCEEDED(hr)){
+    FILTER_INFO f;
+    pFilter->QueryFilterInfo(&f);
+    std::cout << fmt("Filter: %016lx\n", (unsigned long long)pFilter);
+    std::cout << fmt("Filter[%s]", toMBS(f.achName).c_str());
+    if(f.pGraph) f.pGraph->Release();
+    IEnumPins *pEnumPins = NULL;
+    pFilter->EnumPins(&pEnumPins);
+    IPin *pPin = NULL;
+    while(pEnumPins->Next(1, &pPin, NULL) == S_OK){
+      PIN_DIRECTION d;
+      pPin->QueryDirection(&d); // 0: in, 1: out
+      PIN_INFO p;
+      pPin->QueryPinInfo(&p);
+      std::cout << fmt(" [%d=%d:%s]", d, p.dir, toMBS(p.achName).c_str());
+      pPin->Release();
+    }
+    pEnumPins->Release();
+    std::cout << std::endl;
+dspConfig(pFilter);
+    pFilter->Release();
+  }
+  return 0;
+}
 
 std::map<int, Device> DeviceEnumerator::getVideoDevicesMap() {
 	return getDevicesMap(CLSID_VideoInputDeviceCategory);
@@ -42,33 +124,7 @@ std::map<int, Device> DeviceEnumerator::getDevicesMap(const GUID deviceClass)
 		IMoniker *pMoniker = NULL;
 		while (pEnum->Next(1, &pMoniker, NULL) == S_OK) {
 
-{
-  IBaseFilter *pFilter = NULL;
-  HRESULT hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&pFilter);
-  if(SUCCEEDED(hr)){
-    FILTER_INFO f;
-    pFilter->QueryFilterInfo(&f);
-    std::string s = ConvertWCSToMBS(f.achName, -1);
-    std::cout << "Filter: " << std::hex << std::setw(16) << std::setfill('0') << (unsigned long long)pFilter << std::endl;
-    std::cout << "Filter[" << s.c_str() << "]";
-    if(f.pGraph) f.pGraph->Release();
-    IEnumPins *pEnumPins = NULL;
-    pFilter->EnumPins(&pEnumPins);
-    IPin *pPin = NULL;
-    while(pEnumPins->Next(1, &pPin, NULL) == S_OK){
-      PIN_DIRECTION d;
-      pPin->QueryDirection(&d); // 0: in, 1: out
-      PIN_INFO p;
-      pPin->QueryPinInfo(&p);
-      std::string s = ConvertWCSToMBS(p.achName, -1);
-      std::cout << " [" << d << "=" << p.dir << ":" << s.c_str() << "]";
-      pPin->Release();
-    }
-    pEnumPins->Release();
-    std::cout << std::endl;
-    pFilter->Release();
-  }
-}
+dspNameAndPins(pMoniker);
 
 			IPropertyBag *pPropBag;
 			HRESULT hr = pMoniker->BindToStorage(0, 0, IID_PPV_ARGS(&pPropBag));
@@ -92,7 +148,7 @@ std::map<int, Device> DeviceEnumerator::getDevicesMap(const GUID deviceClass)
 			}
 			// If still fails, continue with next device
 			if (FAILED(hr)) {
-std::cerr << "Failed: Description or FirendlyName" << std::endl;
+std::cerr << fmt("Failed: Description or FirendlyName\n");
 				VariantClear(&var);
 				continue;
 			}
@@ -102,19 +158,19 @@ std::cerr << "Failed: Description or FirendlyName" << std::endl;
 			}
 
 			VariantClear(&var); // We clean the variable in order to read the next value
-std::cout << "FriendlyName: " << deviceName.c_str() << std::endl;
+std::cout << fmt("DeviceName: %s\n", deviceName.c_str());
 
 								// We try to read the DevicePath
 			hr = pPropBag->Read(L"DevicePath", &var, 0);
 			if (FAILED(hr)) {
-std::cerr << "Failed: DevicePath" << std::endl;
+std::cerr << fmt("Failed: DevicePath\n");
 				VariantClear(&var);
 				continue; // If it fails we continue with next device
 			}
 			else {
 				devicePath = ConvertBSTRToMBS(var.bstrVal);
 			}
-std::cout << "DevicePath: " << devicePath.c_str() << std::endl;
+std::cout << fmt("DevicePath: %s\n", devicePath.c_str());
 
 			// We populate the map
 			deviceId++;

@@ -28,4 +28,7 @@ private:
 	std::string ConvertBSTRToMBS(BSTR bstr);
 	std::string ConvertWCSToMBS(const wchar_t* pstr, long wslen);
 
+	std::string toMBS(const wchar_t *p){ return ConvertWCSToMBS(p, -1); }
+	int dspConfig(IBaseFilter *pFilter);
+	int dspNameAndPins(IMoniker *pMoniker);
 };
