@@ -37,7 +37,10 @@ int DeviceEnumerator::dspConfig(IBaseFilter *pFilter)
           hr = pConfig->GetStreamCaps(f, &pmt, (BYTE *)&scc);
           if(SUCCEEDED(hr)){
             if(pmt->majortype == MEDIATYPE_Video
-            && pmt->subtype == MEDIASUBTYPE_RGB24
+#if 0
+            && (pmt->subtype == MEDIASUBTYPE_RGB24
+             || pmt->subtype == MEDIASUBTYPE_RGB32)
+#endif
             && pmt->formattype == FORMAT_VideoInfo
             && pmt->cbFormat >= sizeof(VIDEOINFOHEADER)
             && pmt->pbFormat != NULL){
